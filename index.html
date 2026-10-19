@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#001c66">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Maycon iPhone | Orçamento online</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script>
+<script src="core.js"></script>
+
+<script>
+const S = {
+  view: 'cat',
+  q: '',
+  brand: 'Todos',
+  page: 0,
+  model: null,
+  sel: new Set(),
+  order: null,
+  payAmounts: {},
+  payMode: 'single',
+  singlePayId: ''
+};
+
+const user = () => JSON.parse(localStorage.getItem('mi_user') || 'null');
+const SEARCH = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
+const CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+function cli() {
+  const u = user();
+  if (S.view === 'my') return myView();
+  if (S.view === 'reg' && S.model && S.sel.size) return regView();
+  if (S.view === 'model' && S.model) return modelView();
+  if (S.view === 'done' && S.order) return doneView();
+  S.view = 'cat';
+  catView(u);
+}
+
+let CUST = null, lk = 0;
+
+function regView() {
+  CUST = null;
+  const m = S.model, ch = m.services.filter(s => S.sel.has(s.id));
+  document.querySelector('#app').innerHTML = head() + `<main class="wrap main" style="max-width:640px">
+  <button class="back" onclick="S.view='model';cli()">‹ Voltar aos serviços</button>
+  <h1 class="mh">Quase lá!</h1>
+  <p class="mut">Para enviarmos o seu orçamento e entrarmos em contato, precisamos de alguns dados.</p>
+  <div class="card"><b>${esc(m.brand)} ${esc(m.name)}</b>${ch.map(s => `<div class="line"><span>${esc(s.name)}</span><span>${R(+s.price)}</span></div>`).join('')}<div class="line t"><b>Total</b><b>${BRL(total())}</b></div></div>
+  <form class="card" onsubmit="saveUser(event)">
+    <label for="n3" style="margin-top:0">Seu WhatsApp</label>
+    <input id="n3" type="tel" required placeholder="(85) 99999-9999" autocomplete="tel" oninput="lookup()">
+    <p id="hi" class="mut" style="margin:6px 0 0"></p>
+    <div id="nm" class="grid g2"><div><label for="n1">Nome</label><input id="n1" required autocomplete="given-name"></div><div><label for="n2">Sobrenome</label><input id="n2" required autocomplete="family-name"></div></div>
+    <p class="mut">Usamos seu número somente para falar sobre o seu orçamento e avisar sobre o andamento do reparo.</p>
+    <button id="go" class="btn full">Enviar orçamento</button>
+  </form></main>`;
+}
+
+const setReq = r => {
+  document.querySelector('#n1').required = r;
+  document.querySelector('#n2').required = r;
+};
+
+async function lookup() {
+  const t = store.ck(document.querySelector('#n3').value);
+  CUST = null;
+  if (t.length < 10) {
+    document.querySelector('#nm').style.display = '';
+    setReq(true);
+    document.querySelector('#hi').textContent = '';
+    return;
+  }
+  const my = ++lk;
+  let c = null;
+  try { c = await store.getCustomer(t); } catch (_) {}
+  if (my !== lk) return;
+  CUST = c;
+  document.querySelector('#nm').style.display = c ? 'none' : '';
+  setReq(!c);
+  document.querySelector('#hi').textContent = c ? 'Olá, ' + c.nome + '! Já temos o seu cadastro.' : '';
+}
+
+async function saveUser(e) {
+  e.preventDefault();
+  const tel = document.querySelector('#n3').value.trim();
+  if (!CUST && store.ck(tel).length >= 10) {
+    try { CUST = await store.getCustomer(tel); } catch (_) {}
+  }
+  const nome = CUST ? CUST.nome : document.querySelector('#n1').value.trim();
+  const sob = CUST ? (CUST.sobrenome || '') : document.querySelector('#n2').value.trim();
+  if (!nome) {
+    document.querySelector('#nm').style.display = '';
+    setReq(true);
+    document.querySelector('#n1').focus();
+    return toast('Informe seu nome');
+  }
+  localStorage.setItem('mi_user', JSON.stringify({ nome, sobrenome: sob, tel }));
+  finish();
+}
+
+function start() {
+  if (user()) finish();
+  else {
+    S.view = 'reg';
+    cli();
+    scrollTo(0, 0);
+  }
+}
+
+function logout() {
+  if (!confirm('Deseja sair?')) return;
+  localStorage.removeItem('mi_user');
+  localStorage.removeItem('mi_ids');
+  S.view = 'cat';
+  S.order = null;
+  S.model = null;
+  S.sel = new Set();
+  cli();
+  scrollTo(0, 0);
+}
+
+const filt = () => {
+  const q = S.q.toLowerCase();
+  return CAT.filter(m => (S.brand === 'Todos' || m.brand === S.brand) && (m.brand + ' ' + m.name).toLowerCase().includes(q));
+};
+
+function setBrand(b) {
+  S.brand = b;
+  S.page = 0;
+  catView(user());
+}
+
+function catView(u) {
+  const brands = ['Todos', ...new Set(CAT.map(m => m.brand))];
+  document.querySelector('#app').innerHTML = head(u ? `<span class="mut">Olá, ${esc(u.nome)}</span><button class="btn g s" onclick="S.view='my';cli()">Meus pedidos</button><button class="btn g s" onclick="logout()">Sair</button>` : '') + `<section class="hero"><div class="wrap"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:26px;grid-column:1/-1">
+  <div style="flex:1 1 320px;min-width:0"><h1>Qual iPhone precisa de reparo?</h1><p>Escolha o modelo, marque os serviços e veja o valor na hora.</p>
+  <div class="search">${SEARCH}<input id="q" type="search" aria-label="Buscar modelo" placeholder="Buscar modelo, por exemplo iPhone 13" value="${esc(S.q)}" oninput="S.q=this.value;S.page=0;renderList()"></div>
+  ${brands.length > 2 ? `<div class="chips">${brands.map(b => `<button class="chip ${b === S.brand ? 'on' : ''}" data-b="${esc(b)}" onclick="setBrand(this.dataset.b)">${esc(b)}</button>`).join('')}</div>` : ''}</div>
+  <div style="flex:0 1 400px;min-width:0">${carHTML()}</div></div></div></section>
+  <main class="wrap main" id="lst" style="padding-bottom:0"></main>
+  <div class="wrap" style="padding-bottom:60px">${locHTML()}</div>`;  carStart();
+  renderList();
+}
+
+function renderList() {
+  const l = filt(), pages = Math.ceil(l.length / 10) || 1;
+  if (S.page >= pages) S.page = 0;
+  const a = S.page * 10;
+  document.querySelector('#lst').innerHTML = (l.length ? `<div class="models">${l.slice(a, a + 10).map(m => `<button class="row" onclick="pick('${m.id}')"><span class="ic">${ICON}</span><span class="grow"><b>${esc(m.name)}</b><small>${esc(m.brand)}</small></span><span class="mut">›</span></button>`).join('')}</div>` : '<div class="card mut">Nenhum aparelho encontrado. Tente outro nome ou fale com a gente no WhatsApp.</div>') +
+  `<div class="pg"><span>${l.length ? a + 1 : 0} a ${Math.min(a + 10, l.length)} de ${l.length}</span><div><button class="btn g s" ${S.page ? '' : 'disabled'} onclick="S.page--;renderList()">Anterior</button><button class="btn g s" ${S.page + 1 < pages ? '' : 'disabled'} onclick="S.page++;renderList()">Próximo</button></div></div>`;
+}
+
+function pick(id) {
+  S.model = CAT.find(m => m.id === id);
+  S.sel = new Set();
+  S.view = 'model';
+  cli();
+  scrollTo(0, 0);
+}
+
+const total = () => S.model.services.filter(s => S.sel.has(s.id)).reduce((t, s) => t + (+s.price || 0), 0); 
+
+function locHTML() {
+  if (!CFG.addr) return '';
+  const q = encodeURIComponent(CFG.addr);
+  const pin = '<svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>';
+  const clock = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  return `<section class="loc">
+    <div class="loc-head"><small>Visite nossa loja</small><h2>Onde estamos</h2></div>
+    <div class="loc-card">
+      <div class="loc-info">
+        <div class="loc-row"><i>${pin}</i><div><b>${esc(CFG.shop)}</b><span>Assistência técnica especializada em iPhone</span></div></div>
+        ${CFG.hours ? `<div class="loc-row"><i>${clock}</i><div><b>Horário de atendimento</b><span>${esc(CFG.hours)}</span></div></div>` : ''}
+        <div class="loc-btns">
+          <a class="btn full" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${q}">Como chegar</a>
+          ${CFG.zap ? `<a class="btn w full" target="_blank" rel="noopener" href="https://wa.me/${digits(CFG.zap)}">Falar no WhatsApp</a>` : ''}
+        </div>
+      </div>
+      <div class="map-frame"><iframe title="Localização da loja" src="https://www.google.com/maps?q=${q}&output=embed" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div>
+    </div>
+  </section>`;
+}
+
+function modelView() {
+  const m = S.model, n = S.sel.size, ch = m.services.filter(s => S.sel.has(s.id));
+  document.querySelector('#app').innerHTML = head() + `<main class="wrap main"><button class="back" onclick="S.view='cat';cli()">‹ Escolher outro aparelho</button>
+  <div class="two"><section><h1 class="mh">${esc(m.name)}</h1><p class="mut">${esc(m.brand)}${m.prazo ? ' · Prazo médio de ' + esc(m.prazo) : ''}</p><h2 class="sh">Quais serviços você precisa?</h2>
+  ${m.services.map(s => `<label class="svc ${S.sel.has(s.id) ? 'on' : ''}"><input type="checkbox" ${S.sel.has(s.id) ? 'checked' : ''} onchange="tg('${s.id}')"><span>${esc(s.name)}</span><b>${R(+s.price)}</b></label>`).join('') || '<div class="card mut">Este aparelho ainda não tem serviços cadastrados.</div>'}</section>
+  <aside class="sum"><div class="lst"><b>Seu orçamento</b>${ch.map(s => `<div><span>${esc(s.name)}</span><span>${R(+s.price)}</span></div>`).join('') || '<p class="mut" style="margin:6px 0 0">Marque os serviços ao lado.</p>'}</div>
+  <div class="srow"><div class="tot"><small>${n} serviço(s)</small><b>${BRL(total())}</b></div><button id="go" class="btn" ${n ? '' : 'disabled'} onclick="start()">Concluir orçamento</button></div></aside></div></main>`;
+}
+
+function tg(id) {
+  S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
+  modelView();
+}
+
+async function finish() {
+  const u = user(), m = S.model, sv = m.services.filter(s => S.sel.has(s.id)), t = total(), b = document.querySelector('#go'), orig = b.textContent;
+  b.disabled = true;
+  b.textContent = 'Enviando…';
+  const prev = S.order && !S.order.paymentSaved && S.order.status === 'aguardando_pagamento' ? S.order : null;
+  const o = {
+    id: prev ? prev.id : uid() + Date.now().toString(36),
+    nome: u.nome,
+    sobrenome: u.sobrenome,
+    tel: u.tel,
+    brand: m.brand,
+    model: m.name,
+    services: sv.map(s => ({ name: s.name, price: +s.price || 0 })),
+    total: t,
+    at: Date.now(),
+    status: 'aguardando_pagamento'
+  };
+  try {
+    if (prev) {
+      await store.upOrder(o.id, { brand: o.brand, model: o.model, services: o.services, total: o.total, at: o.at });
+      S.payAmounts = {}; S.singlePayId = null;
+    } else {
+    await store.addOrder(o);
+    const ids = JSON.parse(localStorage.getItem('mi_ids') || '[]');
+    ids.push(o.id);
+    localStorage.setItem('mi_ids', JSON.stringify(ids));
+    }
+  } catch (e) {
+    toast('Não foi possível salvar o orçamento. Tente de novo.');
+    b.disabled = false;
+    b.textContent = orig;
+    return;
+  }
+  try { await store.saveCustomer(u, t); } catch (_) {}
+  o.msg = `*Novo orçamento - ${CFG.shop}*\nCliente: ${u.nome} ${u.sobrenome}\nWhatsApp: ${u.tel}\nAparelho: ${m.brand} ${m.name}\nServiços:\n${o.services.map(s => `- ${s.name}: ${R(s.price)}`).join('\n')}\nTotal: ${BRL(t)}`;
+  S.order = o;
+  S.view = 'done';
+  cli();
+  scrollTo(0, 0);
+}
+
+function paymentAmount(id) {
+  return Math.max(0, Number(S.payAmounts[id] || 0) || 0);
+}
+
+function paymentTotal() {
+  return (CFG.pays || []).reduce((sum, p) => sum + paymentAmount(p.id), 0);
+}
+
+function setPayMode(mode) {
+  S.payMode = mode;
+  const methods = CFG.pays || [];
+  S.payAmounts = {};
+  if (mode === 'single') {
+    const chosen = S.singlePayId || methods[0]?.id || '';
+    S.singlePayId = chosen;
+    if (chosen) S.payAmounts[chosen] = Number(S.order?.total) || 0;
+  } else {
+    S.singlePayId = '';
+    S.split = { a: methods[0]?.id || '', b: methods[1]?.id || '', va: '' };
+  }
+  doneView();
+}
+
+function chooseSinglePayment(id) {
+  S.singlePayId = id;
+  S.payAmounts = {};
+  if (id) S.payAmounts[id] = Number(S.order?.total) || 0;
+  doneView();
+}
+
+function paymentChanged(id, value) {
+  const amount = Math.max(0, Number(value) || 0);
+  if (amount > 0) {
+    const active = (CFG.pays || []).filter(p => paymentAmount(p.id) > 0 && p.id !== id);
+    if (active.length >= 2) {
+      toast('Você pode escolher no máximo duas formas de pagamento.');
+      doneView();
+      return;
+    }
+  }
+  S.payAmounts[id] = value;
+  const out = document.querySelector('#pay-total');
+  if (out) out.textContent = BRL(paymentTotal());
+  const btn = document.querySelector('#save-pay');
+  if (btn) btn.disabled = Math.abs(paymentTotal() - (+S.order.total || 0)) > 0.009 || (CFG.pays || []).filter(p => paymentAmount(p.id) > 0).length > (S.payMode === 'single' ? 1 : 2);
+}
+
+function splitSet(slot, field, value) {
+  const methods = CFG.pays || [], total = Number(S.order?.total) || 0;
+  S.split = S.split || { a: methods[0]?.id || '', b: methods[1]?.id || '', va: '' };
+  S.split[field === 'id' ? slot : 'va'] = value;
+  if (S.split.a === S.split.b) { const other = methods.find(m => m.id !== S.split[slot]); if (other) S.split[slot === 'a' ? 'b' : 'a'] = other.id; }
+  let va = Math.min(total, Math.max(0, Number(S.split.va) || 0));
+  S.payAmounts = {};
+  if (S.split.a) S.payAmounts[S.split.a] = va;
+  if (S.split.b) S.payAmounts[S.split.b] = Math.round((total - va) * 100) / 100;
+  if (field === 'id') return doneView();
+  const vb = document.querySelector('#split-vb'); if (vb) vb.value = (total - va).toFixed(2);
+  const out = document.querySelector('#pay-total'); if (out) out.textContent = BRL(paymentTotal());
+  const btn = document.querySelector('#save-pay'); if (btn) btn.disabled = !(va > 0 && va < total);
+}
+
+async function savePayments() {
+  const pays = (CFG.pays || []).map(p => ({ ...p, valor: Math.round(paymentAmount(p.id) * 100) / 100 })).filter(p => p.valor > 0);
+  const sum = pays.reduce((n, p) => n + p.valor, 0);
+  const maxMethods = S.payMode === 'single' ? 1 : 2;
+  if (!pays.length) return toast('Escolha uma forma de pagamento e informe o valor.');
+  if (pays.length > maxMethods) return toast(S.payMode === 'single' ? 'Escolha somente uma forma de pagamento.' : 'Você pode escolher no máximo duas formas de pagamento.');
+  if (S.payMode === 'split' && pays.length !== 2) return toast('Informe o valor nas duas formas de pagamento.');
+  if (Math.abs(sum - (+S.order.total || 0)) > 0.009) return toast('A soma das formas de pagamento precisa ser igual ao total do orçamento.');
+  const saved = pays.map(p => ({ id: p.id, name: p.name, type: p.type, valor: p.valor, link: p.link || '', info: p.info || '' }));
+  try {
+    await store.upOrder(S.order.id, { pagamento: saved, status: 'analise', confirmado: true, confirmadoEm: new Date().toISOString() });
+    S.order.confirmado = true;
+    S.order.pagamento = saved;
+    S.order.paymentSaved = true;
+    doneView();
+    toast('Orçamento confirmado!');
+  } catch (e) {
+    toast('Não foi possível salvar o pagamento. Tente novamente.');
+  }
+}
+
+function doneView() {
+  if (S.payMode === 'single' && !S.singlePayId && (CFG.pays || []).length) {
+    S.singlePayId = CFG.pays[0].id;
+    S.payAmounts = { [S.singlePayId]: Number(S.order?.total) || 0 };
+  }
+  const o = S.order, p = CFG.pix, methods = CFG.pays || [], saved = Array.isArray(o.pagamento) ? o.pagamento : [], pixPay = saved.find(x => x.type === 'pix' && x.valor > 0), ok = !!(p.key && pixPay);
+  if (!o.paymentSaved && S.payMode === 'single' && !Object.keys(S.payAmounts).length && methods.length) {
+    S.payMode = 'single';
+    S.singlePayId = methods[0].id;
+    S.payAmounts[S.singlePayId] = Number(o.total) || 0;
+  }
+  const activeCount = methods.filter(m => paymentAmount(m.id) > 0).length;
+  document.querySelector('#app').innerHTML = head(`<button class="btn g s" onclick="S.view='my';cli()">Meus pedidos</button><button class="btn g s" onclick="logout()">Sair</button>`) + `<main class="wrap main" style="max-width:640px">${!o.paymentSaved ? `<button class="back" onclick="S.view=S.model?'model':'cat';cli();scrollTo(0,0)">‹ Voltar e alterar serviços</button>` : ''}${!o.paymentSaved ? `<div class="ok-h"><i>${CHECK}</i><div><h1 style="font-size:26px;letter-spacing:-.02em">Orçamento enviado</h1><p class="mut" style="margin:0">Recebemos seu pedido, ${esc(o.nome)}. Respondemos em breve.</p></div></div>` : ''}
+  ${!o.paymentSaved ? `<div class="card"><b>${esc(o.brand)} ${esc(o.model)}</b>${o.services.map(s => `<div class="line"><span>${esc(s.name)}</span><span>${R(s.price)}</span></div>`).join('')}<div class="line t"><b>Total</b><b>${BRL(o.total)}</b></div></div>` : ''}
+  ${!o.paymentSaved ? `<div class="card"><h2>Como deseja pagar?</h2><p class="mut">Escolha Pix, cartão ou outra forma; ou selecione duas formas para dividir o valor.</p>
+  <div style="display:grid;gap:8px;margin:12px 0"><label class="svc ${S.payMode === 'single' ? 'on' : ''}"><input type="radio" name="pay-mode" ${S.payMode === 'single' ? 'checked' : ''} onchange="setPayMode('single')"><span>Uma forma de pagamento</span></label><label class="svc ${S.payMode === 'split' ? 'on' : ''}"><input type="radio" name="pay-mode" ${S.payMode === 'split' ? 'checked' : ''} onchange="setPayMode('split')"><span>Duas formas de pagamento</span></label></div>
+  ${S.payMode === 'single' ? `<label for="single-pay">Escolha a forma de pagamento</label><select id="single-pay" class="full" onchange="chooseSinglePayment(this.value)">${methods.map(m => `<option value="${esc(m.id)}" ${S.singlePayId === m.id ? 'selected' : ''}>${esc(m.name)}${m.type === 'pix' ? ' (gera QR Code)' : ''}</option>`).join('')}</select>${methods.filter(m => m.id === S.singlePayId).map(m => `<p class="mut">Valor: ${BRL(o.total)}.${m.info ? ' ' + esc(m.info) : ''}</p>${m.link ? `<p><a href="${esc(m.link)}" target="_blank" rel="noopener">Abrir link de pagamento</a></p>` : ''}`).join('')}` : (() => { const sp = S.split || { a: methods[0]?.id || '', b: methods[1]?.id || '', va: '' }; const tot = Number(o.total) || 0, va = Number(sp.va) || 0; const opt = (sel, excl) => methods.filter(m => m.id !== excl).map(m => `<option value="${esc(m.id)}" ${sel === m.id ? 'selected' : ''}>${esc(m.name)}${m.type === 'pix' ? ' (gera QR Code)' : ''}</option>`).join(''); return methods.length < 2 ? '<p class="mut">A loja precisa ter pelo menos duas formas de pagamento cadastradas.</p>' : `<p class="mut">Escolha as duas formas e digite o valor da primeira. A segunda é preenchida automaticamente.</p><label>1ª forma de pagamento</label><div class="grid g2"><select class="full" onchange="splitSet('a','id',this.value)">${opt(sp.a, sp.b)}</select><input type="number" min="0" max="${tot}" step="0.01" placeholder="Valor em R$" value="${sp.va || ''}" oninput="splitSet('a','va',this.value)"></div><label style="margin-top:10px;display:block">2ª forma de pagamento</label><div class="grid g2"><select class="full" onchange="splitSet('b','id',this.value)">${opt(sp.b, sp.a)}</select><input id="split-vb" type="number" readonly value="${va > 0 ? (tot - va).toFixed(2) : ''}" placeholder="Preenchido automaticamente"></div>`; })()}
+  <div class="line"><b>Total informado</b><b id="pay-total">${BRL(paymentTotal())}</b></div><button id="save-pay" class="btn full" style="margin-top:10px" ${(S.payMode === 'split' && !(Number(S.split?.va) > 0 && Number(S.split?.va) < Number(o.total))) || Math.abs(paymentTotal() - (+o.total || 0)) > 0.009 || activeCount > (S.payMode === 'single' ? 1 : 2) ? 'disabled' : ''} onclick="savePayments()">Confirmar pagamento</button></div>` : `<div class="card"><h2>Orçamento confirmado</h2><div class="line"><span>Cliente</span><b>${esc(o.nome || '')}</b></div><div class="line"><span>Aparelho</span><b>${esc(o.brand)} ${esc(o.model)}</b></div><h3 style="margin:14px 0 4px">Serviços</h3>${o.services.map(s => `<div class="line"><span>${esc(s.name)}</span><span>${R(s.price)}</span></div>`).join('')}<div class="line t"><b>Total</b><b>${BRL(o.total)}</b></div><h3 style="margin:14px 0 4px">Pagamento</h3>${saved.map(m => `<div class="line"><span>${esc(m.name)}</span><b>${BRL(m.valor)}</b></div>${m.info ? `<p class="mut">${esc(m.info)}</p>` : ''}${m.link ? `<p><a href="${esc(m.link)}" target="_blank" rel="noopener">Abrir link de pagamento</a></p>` : ''}`).join('')}</div>`}
+  ${ok ? `<div class="card" style="text-align:center"><h2>Pagar com Pix</h2><p class="mut" style="margin:4px 0">Escaneie o QR code ou copie o código. Valor Pix: ${BRL(pixPay.valor)}.</p><div class="qr" id="qr"></div><div class="code" id="pc"></div><button class="btn full" onclick="navigator.clipboard.writeText(document.querySelector('#pc').textContent).then(()=>toast('Código Pix copiado'))">Copiar código Pix</button></div>` : ''}
+  ${o.paymentSaved && CFG.addr ? `<div class="card"><h2>Leve seu aparelho até a loja</h2><p class="mut" style="margin:4px 0">Agora é só deixar o aparelho com a gente:</p>${CFG.hours ? `<span class="map-hours"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Horário: ${esc(CFG.hours)}</span>` : ''}<div class="map-frame"><iframe title="Mapa da loja" src="https://www.google.com/maps?q=${encodeURIComponent(CFG.addr)}&output=embed" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe></div><a class="btn full" style="margin-top:12px" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(CFG.addr)}">Como chegar (abrir no mapa)</a></div>` : ''}
+  ${o.paymentSaved ? `${CFG.zap ? `<a class="btn w full" target="_blank" rel="noopener" href="https://wa.me/${digits(CFG.zap)}?text=${encodeURIComponent(o.msg)}">Falar com a loja no WhatsApp</a>` : ''}
+  <button class="btn g full ac" style="margin-top:10px" onclick="S.view='my';cli()">Acompanhar meu pedido</button>
+  <button class="btn g full" style="margin-top:10px" onclick="S.view='cat';S.order=null;S.model=null;S.sel=new Set();S.payAmounts={};cli()">Fazer outro orçamento</button>` : ''}</main>`;
+
+  if (ok) {
+    const c = pixCode(p, pixPay.valor);
+    document.querySelector('#pc').textContent = c;
+    new QRCode(document.querySelector('#qr'), { text: c, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+  }
+}
+
+async function myView() {
+  document.querySelector('#app').innerHTML = head(`<button class="btn g s" onclick="S.view='cat';cli()">Voltar</button><button class="btn g s" onclick="logout()">Sair</button>`) + `<main class="wrap main" style="max-width:640px"><h1 class="mh">Meus pedidos</h1><div id="mo"><p class="mut">Carregando…</p></div></main>`;
+  let l = [];
+  for (const id of JSON.parse(localStorage.getItem('mi_ids') || '[]')) {
+    try {
+      const o = await store.getOrder(id);
+      if (o) l.push(o);
+    } catch (_) {}
+  }
+  l.sort((a, b) => b.at - a.at);
+  document.querySelector('#mo').innerHTML = l.map(o => {
+    const k = stKey(o), i = FLOW.indexOf(k), all = k === 'feito';
+    const steps = FLOW.map((f, j) => {
+      const on = all || j <= i;
+return `<div style="display:flex;align-items:center;gap:10px;margin:6px 0;opacity:${on ? 1 : .55}"><span style="width:12px;height:12px;border-radius:50%;background:${on ? 'var(--p2)' : 'rgba(147,160,200,.35)'};${on ? 'box-shadow:0 0 10px rgba(61,155,255,.7)' : ''}"></span><span>${ST[f].n}</span></div>`;    }).join('');
+return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(o.brand)} ${esc(o.model)}</b><span class="pill ${k === 'entregue' || all ? 'ok' : ''}">${ST[k]?.n || 'Em análise'}</span></div>    <div class="mut">${new Date(o.at).toLocaleString('pt-BR')} · ${BRL(o.total)}</div><div style="margin-top:10px">${steps}</div></div>`;
+  }).join('') || '<div class="card mut">Você ainda não fez nenhum orçamento.</div>';
+}
+
+(async () => {
+  await loadData();
+
+  // Registra o Service Worker apenas quando o site é servido por HTTP/HTTPS.
+  // Ao abrir index.html diretamente (file://), ele não será registrado.
+  if (
+    'serviceWorker' in navigator &&
+    (location.protocol === 'http:' || location.protocol === 'https:')
+  ) {
+    navigator.serviceWorker.register('./sw.js').catch(err => {
+      console.error('Erro ao registrar Service Worker:', err);
+    });
+  }
+
+  cli();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'mayconelano15@gmail.com';
+    }
+
+    // Catálogo e configurações: o site lê, só o admin altera
+    match /app/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Orçamentos: qualquer cliente cria, só o admin lê e altera
+    match /orders/{id} {
+      allow create: if request.resource.data.keys().hasOnly(
+          ['id','nome','sobrenome','tel','brand','model','services','total','at','status'])
+        && request.resource.data.status == 'novo'
+        && request.resource.data.nome is string && request.resource.data.nome.size() <= 80
+        && request.resource.data.sobrenome is string && request.resource.data.sobrenome.size() <= 80
+        && request.resource.data.tel is string && request.resource.data.tel.size() <= 30
+        && request.resource.data.services is list && request.resource.data.services.size() <= 20
+        && request.resource.data.total is number;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Aparelhos que recebem notificação
+    match /adminTokens/{token} {
+      allow read, write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

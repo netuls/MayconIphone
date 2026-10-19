@@ -1,0 +1,35 @@
+MAYCON IPHONE - SISTEMA DE ORÇAMENTO ONLINE
+
+Teste rápido: abra index.html (ou hospede). Painel admin: index.html#/admin (modo teste, senha admin123).
+No modo teste os dados ficam só no seu navegador. Para valer de verdade, faça os passos abaixo.
+
+1) HOSPEDAGEM (HTTPS é obrigatório para o PWA)
+   Firebase Hosting, Netlify ou Cloudflare Pages. Envie todos os arquivos desta pasta.
+
+2) FIREBASE (guarda catálogo, orçamentos e login do admin)
+   - console.firebase.google.com > criar projeto > adicionar app Web > copie a config para config.js
+   - Authentication > Método de login > E-mail/senha > crie o seu usuário admin
+   - Firestore Database > criar banco > aba Regras, cole:
+       rules_version = '2';
+       service cloud.firestore {
+         match /databases/{db}/documents {
+           match /app/{d} { allow read: if true; allow write: if request.auth != null; }
+           match /orders/{o} { allow create: if true; allow read, update, delete: if request.auth != null; }
+         }
+       }
+   - Acesse /#/admin, entre, e o catálogo inicial é gravado.
+
+3) WHATSAPP AUTOMÁTICO (escaneando QR)
+   Use a Evolution API (open source) num servidor seu (VPS com Docker) ou num serviço que a hospede.
+   No admin > Configurações: URL do servidor, nome da instância e API key > Conectar WhatsApp > escaneie o QR.
+   Preencha também "Seu WhatsApp" (número que recebe os orçamentos).
+   ATENÇÃO: como o envio sai do navegador do cliente, a API key fica visível para quem inspecionar o site.
+   Use uma chave da instância (não a chave global) e, quando puder, troque por um pequeno servidor/Cloud Function
+   que guarde a chave. Se o envio automático falhar, o cliente vê o botão "Falar com a loja no WhatsApp".
+
+4) PIX
+   Admin > Configurações > chave Pix, nome do recebedor e cidade. O QR é gerado com o valor total de cada orçamento.
+   Chave de telefone deve ser digitada como +5585999999999.
+
+5) PWA
+   No Android/Chrome aparece o botão "Instalar app". No iPhone: Compartilhar > Adicionar à Tela de Início.

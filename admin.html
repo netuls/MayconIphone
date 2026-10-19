@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1a33">
+<meta name="robots" content="noindex,nofollow">
+<title>Painel admin | Maycon iPhone</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<div id="app"></div>
+<script src="config.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="core.js"></script>
+<style>.pill.wait{white-space:nowrap;flex-shrink:0;font-size:12px;background:#fff4d6;color:#8a5a00;border-color:#f0c36b}</style>
+<script>if(typeof ST!=="undefined"&&!ST.aguardando_pagamento)ST.aguardando_pagamento={n:"Aguardando pagamento"};</script>
+<script>
+const A={tab:'orders',brand:'Todos',q:'',edit:null,sub:'ativos',list:[],cl:[],cq:''};let E=null,seeded=false,PAYS=[];
+async function admin(){$('#app').innerHTML=head('<a href="index.html" class="mut">Ver site</a>')+'<main class="wrap main"><p class="mut">Carregando…</p></main>';
+ if(FB){auth.onAuthStateChanged(u=>u?adm():login())}else sessionStorage.mi_adm?adm():login()}
+function login(){$('#app').innerHTML=head()+`<main class="wrap main" style="max-width:420px"><form class="card" style="margin-top:40px" onsubmit="doLogin(event)"><h2>Painel admin</h2><label for="pw">Senha</label><input id="pw" type="password" required>
+<div class="err" id="le"></div><p></p><button class="btn full">Entrar</button>${FB?'':'<p class="mut"></p>'}</form></main>`}
+async function doLogin(e){e.preventDefault();try{if(FB)await auth.signInWithEmailAndPassword((typeof ADMIN_EMAIL!=='undefined'?ADMIN_EMAIL:''),$('#pw').value);else{if($('#pw').value!==(localStorage.mi_pass||'admin123'))throw 0;sessionStorage.mi_adm=1;adm()}}catch(_){$('#le').textContent='Senha incorreta.'}}
+function logout(){if(unsub){unsub();unsub=null}if(FB)auth.signOut();else{delete sessionStorage.mi_adm;login()}}
+function adm(){if(FB&&!seeded){seeded=true;fdb.doc('app/catalog').get().then(s=>{if(!s.exists)store.set('catalog',CAT)}).catch(()=>{})}
+ watchOrders();
+ const t=(k,n)=>`<button class="tab ${A.tab===k?'on':''}" onclick="A.tab='${k}';A.edit=null;adm()">${n}</button>`;
+ $('#app').innerHTML=head('<a href="index.html" class="mut">Ver site</a><button class="btn g s" onclick="logout()">Sair</button>')+`<main class="wrap main"><nav class="tabs">${t('orders','Orçamentos')}${t('cli','Clientes')}${t('cat','Catálogo')}${t('car','Carrossel')}${t('cfg','Configurações')}</nav><div id="pane"></div></main>`;
+ ({orders:ordersTab,cli:cliTab,cat:A.edit?editor:catTab,car:carTab,cfg:cfgTab})[A.tab]()}
+/* Aviso de novo pedido (som + notificação, com o painel aberto) */
+let unsub=null,first=true,AC;
+const unlock=()=>{try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();AC.resume()}catch(_){}};
+addEventListener('click',unlock);addEventListener('touchstart',unlock);
+function beep(){try{unlock();[0,.25,.5].forEach(d=>{const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime+d;o.connect(g);g.connect(AC.destination);o.frequency.value=880;g.gain.setValueAtTime(.25,t);g.gain.exponentialRampToValueAtTime(.001,t+.2);o.start(t);o.stop(t+.2)})}catch(_){}}
+function watchOrders(){if(!FB||unsub)return;first=true;
+ unsub=fdb.collection('orders').orderBy('at','desc').limit(1).onSnapshot(s=>{if(first){first=false;return}s.docChanges().forEach(c=>{if(c.type==='added')newOrder(c.doc.data())})},()=>{})}
+function newOrder(o){beep();toast('Novo orçamento: '+o.nome+' '+(o.sobrenome||''));
+ if('Notification'in window&&Notification.permission==='granted'){const title='Novo orçamento',opt={body:`${o.nome} ${o.sobrenome||''} · ${o.brand} ${o.model} · ${BRL(o.total)}`,icon:'icon-192.png',tag:o.id};
+ (navigator.serviceWorker?navigator.serviceWorker.getRegistration():Promise.resolve()).then(r=>r?r.showNotification(title,opt):new Notification(title,opt)).catch(()=>{})}
+ if(A.tab==='orders'&&!A.edit&&$('#pane'))ordersTab()}
+async function enableAlerts(){unlock();beep();if('Notification'in window)await Notification.requestPermission();drawOrders()}
+const alertBox=()=>FB&&'Notification'in window&&Notification.permission!=='granted'?`<div class="card"><b>Avisos de novo pedido</b><p class="mut">${Notification.permission==='denied'?'As notificações estão bloqueadas neste navegador. Libere nas configurações do site para receber o aviso.':'Ative para receber som e notificação assim que um cliente enviar um orçamento (com o painel aberto).'}</p>${Notification.permission==='denied'?'':'<button class="btn s" onclick="enableAlerts()">Ativar avisos</button>'}</div>`:'';
+/* Orçamentos: em aberto x histórico (garantia fica no histórico) */
+const isHist=o=>['entregue','feito','garantia'].includes(o.status);
+async function ordersTab(){$('#pane').innerHTML='<p class="mut">Carregando…</p>';try{A.list=(await store.orders()).filter(o=>o.confirmado||o.status==='aguardando_pagamento')}catch(_){A.list=[]}drawOrders()}
+function drawOrders(){const hist=A.sub==='hist',l=A.list.filter(o=>isHist(o)===hist);
+ const sb=(k,n)=>`<button class="tab ${A.sub===k?'on':''}" onclick="A.sub='${k}';drawOrders()">${n} (${A.list.filter(o=>isHist(o)===(k==='hist')).length})</button>`;
+ $('#pane').innerHTML=alertBox()+`<nav class="tabs">${sb('ativos','Em aberto')}${sb('hist','Histórico')}</nav>`+(l.length?`<div class="bar2"><button class="btn r s" onclick="delAllOrders()">Excluir todos (${l.length})</button></div>`:'')+(l.map(o=>{const k=stKey(o);
+ const gb=['tela','bateria'].map(t=>`<button class="btn g s" onclick="setGarantia('${o.id}','${t}')">${GAR[t].n}</button>`).join('');
+ const btns=hist?`<button class="btn g s" onclick="setStatus('${o.id}','analise')">Reabrir</button>`+gb+`<button class="btn r s" onclick="delOrder('${o.id}')">Excluir</button>`
+  :FLOW.filter(x=>x!==k).map(x=>`<button class="btn g s" onclick="setStatus('${o.id}','${x}')">${ST[x].n}</button>`).join('')+gb+`<button class="btn r s" onclick="delOrder('${o.id}')">Excluir</button>`;
+ const gar=k==='garantia'&&GAR[o.garantiaTipo];
+ const lbl=gar?GAR[o.garantiaTipo].n:(ST[k]?.n||'Em análise');
+ const gv=(gar&&o.garantiaAte?`<div class="mut">Garantia válida até ${new Date(o.garantiaAte).toLocaleDateString('pt-BR')}</div>`:'')+(o.pagamento&&o.pagamento.length?`<div class="mut">Pagamento: ${o.pagamento.map(p=>esc(p.name)+' '+BRL(p.valor)).join(' · ')}</div>`:'');
+ return `<div class="card ord ${hist?'done':''}"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(o.nome)} ${esc(o.sobrenome)}</b><span class="pill ${hist?'ok':''} ${k==='aguardando_pagamento'?'wait':''}">${lbl}</span></div>
+<div class="mut">${new Date(o.at).toLocaleString('pt-BR')} · ${esc(o.tel)}</div>${gv}<div style="margin:10px 0">${esc(o.brand)} ${esc(o.model)}<br><span class="mut">${o.services.map(s=>esc(s.name)).join(', ')}</span></div><b>${BRL(o.total)}</b>
+<div class="bar2"><a class="btn w s" target="_blank" rel="noopener" href="https://wa.me/55${digits(o.tel).replace(/^55/,'')}">Responder cliente</a>${btns}</div></div>`}).join('')||`<div class="card mut">${hist?'Nenhum atendimento no histórico.':'Nenhum orçamento em aberto.'}</div>`)}
+async function delOrder(id){const o=A.list.find(x=>x.id===id);if(!o||!confirm('Excluir o orçamento de '+o.nome+' '+o.sobrenome+'? Apaga do painel e do banco de dados de vez.'))return;
+ try{await store.delOrders([o]);toast('Orçamento excluído')}catch(_){return toast('Erro ao excluir')}ordersTab()}
+async function delAllOrders(){const hist=A.sub==='hist',l=A.list.filter(o=>isHist(o)===hist);
+ if(!l.length||!confirm('Excluir TODOS os '+l.length+' orçamento(s) '+(hist?'do histórico':'em aberto')+'? Apaga do painel e do banco de dados de vez, e não dá para desfazer.'))return;
+ try{await store.delOrders(l);toast(l.length+' orçamento(s) excluído(s)')}catch(_){return toast('Erro ao excluir')}ordersTab()}
+async function setStatus(id,k){const o=A.list.find(x=>x.id===id);if(!o)return;
+ if(ST[k].msg)window.open('https://wa.me/55'+digits(o.tel).replace(/^55/,'')+'?text='+encodeURIComponent(ST[k].msg(o)),'_blank');
+ try{await store.upOrder(id,{status:k,statusAt:Date.now()});toast('Status: '+ST[k].n)}catch(_){toast('Erro ao atualizar o status')}ordersTab()}
+async function setGarantia(id,t){const o=A.list.find(x=>x.id===id);if(!o)return;
+ const n=Date.now(),ate=garAte(t,n);
+ window.open('https://wa.me/55'+digits(o.tel).replace(/^55/,'')+'?text='+encodeURIComponent(garMsg(o,t,ate)),'_blank');
+ try{await store.upOrder(id,{status:'garantia',garantiaTipo:t,garantiaAte:ate.getTime(),statusAt:n});toast(GAR[t].n+' registrada')}catch(_){toast('Erro ao atualizar o status')}ordersTab()}
+/* Clientes */
+async function cliTab(){$('#pane').innerHTML='<p class="mut">Carregando…</p>';try{A.cl=await store.customers()}catch(_){A.cl=[]}
+ $('#pane').innerHTML=`<input aria-label="Buscar cliente" placeholder="Buscar por nome ou WhatsApp…" value="${esc(A.cq)}" oninput="A.cq=this.value;drawCli()"><div class="bar2"><button class="btn g s" onclick="importCust()">Importar clientes dos orçamentos</button></div><p class="mut" id="cc"></p><div id="cll"></div>`;drawCli()}
+function drawCli(){const q=A.cq.toLowerCase().trim(),qd=digits(A.cq);
+ const l=A.cl.filter(c=>!q||(c.nome+' '+(c.sobrenome||'')).toLowerCase().includes(q)||(qd&&digits(c.tel).includes(qd)));
+ $('#cc').textContent=A.cl.length+' cliente(s) na base'+(q?' · '+l.length+' encontrado(s)':'');
+ $('#cll').innerHTML=l.map(c=>`<div class="card ord"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(c.nome)} ${esc(c.sobrenome||'')}</b><span class="pill">${c.orders||0} pedido(s)</span></div>
+<div class="mut">${esc(c.tel)} · Total em orçamentos: ${BRL(c.spent)}${c.lastAt?' · Último: '+new Date(c.lastAt).toLocaleDateString('pt-BR'):''}</div>
+<div class="bar2"><a class="btn w s" target="_blank" rel="noopener" href="https://wa.me/55${digits(c.tel).replace(/^55/,'')}">WhatsApp</a><button class="btn r s" onclick="delCust('${c.id}')">Excluir</button></div></div>`).join('')||'<div class="card mut">Nenhum cliente encontrado.</div>'}
+async function delCust(id){const c=A.cl.find(x=>x.id===id);if(!c||!confirm('Excluir '+c.nome+' da base de clientes?'))return;
+ try{await store.delCustomer(id);A.cl=A.cl.filter(x=>x.id!==id);drawCli();toast('Cliente excluído')}catch(_){toast('Erro ao excluir')}}
+async function importCust(){let os=[];try{os=await store.orders()}catch(_){}
+ const m={};os.forEach(o=>{const k=store.ck(o.tel);if(k.length<10)return;const c=m[k]||(m[k]={id:k,nome:o.nome,sobrenome:o.sobrenome||'',tel:o.tel,orders:0,spent:0,lastAt:0});c.orders++;c.spent+=+o.total||0;if(o.at>c.lastAt){c.lastAt=o.at;c.nome=o.nome;c.sobrenome=o.sobrenome||'';c.tel=o.tel}});
+ const l=Object.values(m);if(!l.length)return toast('Nenhum orçamento para importar');
+ if(!confirm('Importar '+l.length+' cliente(s) dos últimos '+os.length+' orçamentos? Os dados de quem já está na base serão atualizados.'))return;
+ try{for(const c of l)await store.setCustomer(c);toast('Clientes importados');cliTab()}catch(_){toast('Erro ao importar. Verifique as regras do Firestore.')}}
+/* Catálogo */
+const brands=()=>[...new Set(CAT.map(m=>m.brand))];
+function editModel(id){A.edit=id;E=JSON.parse(JSON.stringify(CAT.find(x=>x.id===id)));adm()}
+function catTab(){const q=A.q.toLowerCase();const l=CAT.filter(m=>(A.brand==='Todos'||m.brand===A.brand)&&(m.brand+' '+m.name).toLowerCase().includes(q));
+ $('#pane').innerHTML=`<div class="grid g2"><input aria-label="Buscar modelo" placeholder="Buscar modelo…" value="${esc(A.q)}" oninput="A.q=this.value;catTab();this.focus()"><select aria-label="Marca" onchange="A.brand=this.value;catTab()">${['Todos',...brands()].map(b=>`<option ${b===A.brand?'selected':''}>${esc(b)}</option>`).join('')}</select></div>
+<div class="bar2"><button class="btn" onclick="newModel()">Novo modelo</button></div><div class="models">${l.slice(0,60).map(m=>`<button class="row" onclick="editModel('${m.id}')"><span class="ic">${ICON}</span><span class="grow"><b>${esc(m.name)}</b><small>${esc(m.brand)} · ${m.services.length} serviços</small></span><span class="mut">Editar ›</span></button>`).join('')}</div>${l.length?'':'<div class="card mut">Nenhum modelo. Toque em Novo modelo.</div>'}${l.length>60?`<p class="mut">Mostrando 60 de ${l.length}. Use a busca para achar os outros.</p>`:''}`}
+function newModel(){E={id:uid(),brand:A.brand==='Todos'?'Apple':A.brand,name:'',prazo:'1h a 5h',services:mkS(DS),isNew:true};A.edit=E.id;adm()}
+function editor(){$('#pane').innerHTML=`<button class="back" onclick="A.edit=null;adm()">‹ Voltar ao catálogo</button><div class="card"><div class="grid g2"><div><label style="margin-top:0">Nome do aparelho</label><input value="${esc(E.name)}" oninput="E.name=this.value"></div><div><label style="margin-top:0">Marca</label><input list="bl" value="${esc(E.brand)}" oninput="E.brand=this.value"><datalist id="bl">${brands().map(b=>`<option value="${esc(b)}">`).join('')}</datalist></div></div><label>Prazo (ex.: 1h a 5h)</label><input value="${esc(E.prazo)}" oninput="E.prazo=this.value"></div>
+<div class="card"><h2>Serviços e valores</h2><p class="mut">Valor 0 aparece como "A consultar".</p>${E.services.map((s,i)=>`<div class="grid g3" style="margin:8px 0"><input aria-label="Serviço" value="${esc(s.name)}" oninput="E.services[${i}].name=this.value"><input aria-label="Valor" type="number" min="0" step="1" value="${s.price}" oninput="E.services[${i}].price=+this.value"><button class="btn r" onclick="E.services.splice(${i},1);editor()">Excluir</button></div>`).join('')}
+<button class="btn g" onclick="E.services.push({id:uid(),name:'',price:0});editor()">Adicionar serviço</button></div>
+<div class="bar2"><button class="btn" onclick="saveModel()">Salvar</button><button class="btn g" onclick="copyBrand()">Copiar serviços para toda a marca</button>${E.isNew?'':'<button class="btn r" onclick="delModel()">Excluir modelo</button>'}</div>`}
+async function saveModel(){if(!E.name.trim())return toast('Informe o nome do aparelho');E.services=E.services.filter(s=>s.name.trim());const i=CAT.findIndex(m=>m.id===E.id);const c={...E};delete c.isNew;i<0?CAT.push(c):CAT[i]=c;await store.set('catalog',CAT);toast('Salvo');A.edit=null;adm()}
+async function copyBrand(){if(!confirm('Isso substitui os serviços de todos os modelos da marca '+E.brand+'. Continuar?'))return;await saveModel();CAT.filter(m=>m.brand===E.brand&&m.id!==E.id).forEach(m=>m.services=E.services.map(s=>({...s,id:uid()})));await store.set('catalog',CAT);toast('Aplicado à marca')}
+async function delModel(){if(!confirm('Excluir '+E.name+'?'))return;CAT=CAT.filter(m=>m.id!==E.id);await store.set('catalog',CAT);A.edit=null;adm()}
+/* Configurações */
+function cfgTab(keep){if(!keep)PAYS=JSON.parse(JSON.stringify(CFG.pays||[]));const c=CFG;$('#pane').innerHTML=`<div class="card"><h2>Loja</h2><label>Nome da loja</label><input id="c1" value="${esc(c.shop)}"><label>Seu WhatsApp (recebe os orçamentos)</label><input id="c2" type="tel" placeholder="5585999999999" value="${esc(c.zap)}"><p class="mut">Use DDI + DDD + número, só dígitos.</p><label>Endereço da loja</label><textarea id="c4" rows="2" placeholder="Rua, número, bairro, cidade">${esc(c.addr||'')}</textarea><label>Horário de atendimento (opcional)</label><input id="c5" placeholder="Seg a Sáb, 9h às 18h" value="${esc(c.hours||'')}"><p class="mut">Aparece para o cliente ao concluir o orçamento, com botão para abrir no mapa.</p></div>
+<div class="card"><h2>Pix</h2><label>Chave Pix</label><input id="p1" placeholder="CPF, CNPJ, e-mail, +5585… ou chave aleatória" value="${esc(c.pix.key)}"><div class="grid g2"><div><label>Nome do recebedor</label><input id="p2" maxlength="25" value="${esc(c.pix.name)}"></div><div><label>Cidade</label><input id="p3" maxlength="15" value="${esc(c.pix.city)}"></div></div>
+<p class="mut">O QR code é gerado na hora com o valor que o cliente colocar no Pix.</p>${c.pix.key?`<button class="btn g" onclick="testPix()">Ver QR de teste (R$ 1,00)</button><div class="qr" id="tq" hidden></div>`:''}</div>
+<div class="card"><h2>Formas de pagamento</h2><p class="mut">O cliente divide o total entre as formas abaixo (por exemplo, R$ 50 no Pix e R$ 30 no cartão). Só o Pix gera QR code.</p>
+${PAYS.map((p,i)=>`<div style="border:1px solid rgba(128,128,128,.3);border-radius:12px;padding:12px;margin:10px 0"><div class="grid g2"><div><label style="margin-top:0">Nome</label><input aria-label="Nome da forma de pagamento" value="${esc(p.name)}" oninput="PAYS[${i}].name=this.value"></div><div><label style="margin-top:0">Tipo</label><select aria-label="Tipo" onchange="PAYS[${i}].type=this.value;payRefresh()"><option value="pix" ${p.type==='pix'?'selected':''}>Pix (gera QR code)</option><option value="outro" ${p.type!=='pix'?'selected':''}>Outra (cartão, dinheiro…)</option></select></div></div>
+${p.type==='pix'?'<p class="mut">Usa a chave Pix cadastrada acima. O QR sai com o valor que o cliente colocar nesta forma de pagamento.</p>':`<label>Link de pagamento (opcional)</label><input type="url" placeholder="https://…" value="${esc(p.link||'')}" oninput="PAYS[${i}].link=this.value"><label>Instrução para o cliente (opcional)</label><input placeholder="Ex.: Pague na maquininha ao retirar o aparelho" value="${esc(p.info||'')}" oninput="PAYS[${i}].info=this.value">`}
+<div class="bar2"><button class="btn r s" onclick="PAYS.splice(${i},1);payRefresh()">Excluir</button></div></div>`).join('')||'<p class="mut">Nenhuma forma de pagamento. O cliente não verá a opção de pagar no site.</p>'}
+<button class="btn g" onclick="PAYS.push({id:uid(),name:'',type:'outro',link:'',info:''});payRefresh()">Adicionar forma de pagamento</button></div>
+
+<button class="btn full" onclick="saveCfg()">Salvar configurações</button>`}
+function payRefresh(){readCfg();cfgTab(true)}
+function testPix(){const q=$('#tq');q.hidden=false;q.innerHTML='';readCfg();new QRCode(q,{text:pixCode(CFG.pix,1),width:180,height:180,correctLevel:QRCode.CorrectLevel.M})}
+function readCfg(){CFG={shop:$('#c1').value.trim()||'Maycon iPhone',zap:digits($('#c2').value),addr:$('#c4').value.trim(),hours:$('#c5').value.trim(),pix:{key:$('#p1').value.trim(),name:$('#p2').value.trim(),city:$('#p3').value.trim()},pays:PAYS}}
+async function saveCfg(){readCfg();
+ const bad=CFG.pays.find(p=>p.type!=='pix'&&(p.link||'').trim()&&!/^https?:\/\//i.test(p.link.trim()));
+ if(bad)return toast('O link de "'+(bad.name||'pagamento')+'" precisa começar com https://');
+ CFG.pays=CFG.pays.filter(p=>(p.name||'').trim()).map(p=>({...p,name:p.name.trim(),link:(p.link||'').trim(),info:(p.info||'').trim()}));
+ PAYS=CFG.pays;await store.set('config',CFG);toast('Configurações salvas');cfgTab(true)}
+
+/* Carrossel da capa do site */
+function carTab(){$('#pane').innerHTML=`<div class="card"><h2>Carrossel da capa</h2><p class="mut">As fotos trocam sozinhas a cada 5 segundos na capa do site, com transição e zoom suave. Até 6 fotos. Para o melhor resultado, use fotos <b>PNG sem fundo</b> (por exemplo, um iPhone recortado): elas se misturam com o fundo azul do site. Sem nenhuma foto, a capa fica só com o texto.</p>
+ ${SL.map((s,i)=>`<div style="display:flex;gap:12px;align-items:center;margin:14px 0;flex-wrap:wrap"><img src="${esc(s.img)}" alt="" style="width:140px;aspect-ratio:3/2;object-fit:contain;border-radius:10px;background:repeating-conic-gradient(#1a2350 0% 25%,#0d1433 0% 50%) 50%/16px 16px"><div style="flex:1;min-width:180px"><input value="${esc(s.txt||'')}" placeholder="Texto sobre a foto (opcional)" maxlength="70" oninput="SL[${i}].txt=this.value"><div style="display:flex;gap:6px;margin-top:6px"><button class="btn g s" onclick="carMv(${i},-1)" ${i?'':'disabled'}>↑ Subir</button><button class="btn g s" onclick="carMv(${i},1)" ${i<SL.length-1?'':'disabled'}>↓ Descer</button><button class="btn g s" style="color:#c62828" onclick="SL.splice(${i},1);carTab()">Remover</button></div></div></div>`).join('')}
+ ${SL.length<6?`<label class="btn g" style="display:inline-flex;margin-top:8px;cursor:pointer;width:auto">+ Adicionar fotos<input type="file" accept="image/*" multiple hidden onchange="carAdd(this.files)"></label>`:''}
+ <div style="margin-top:18px"><button class="btn" onclick="carSave()">Salvar carrossel</button></div></div>
+ ${SL.length?`<div class="card"><h2>Prévia</h2>${carHTML()}</div>`:''}`;carStart()}
+function carMv(i,d){const [x]=SL.splice(i,1);SL.splice(i+d,0,x);carTab()}
+/* Reduz a foto mantendo a transparência (WebP; se o navegador não suportar, PNG menor) */
+function shrink(f){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{
+ const W=900,H=600,c=document.createElement('canvas');c.width=W;c.height=H;
+ const s=Math.min(W/im.width,H/im.height),w=im.width*s,h=im.height*s;
+ c.getContext('2d').drawImage(im,(W-w)/2,(H-h)/2,w,h);
+ let out=c.toDataURL('image/webp',.8);
+ if(!out.startsWith('data:image/webp'))out=c.toDataURL('image/png');
+ ok(out)};im.onerror=no;im.src=r.result};r.onerror=no;r.readAsDataURL(f)})}
+async function carAdd(fs){for(const f of [...fs].slice(0,6-SL.length)){try{SL.push({img:await shrink(f),txt:''})}catch(_){toast('Não consegui abrir uma das fotos')}}carTab()}
+async function carSave(){if(JSON.stringify(SL).length>950000)return toast('As fotos ficaram pesadas demais. Remova uma e salve de novo.');
+ try{await store.set('slides',SL);toast('Carrossel salvo! Já aparece no site.')}catch(_){toast('Não deu para salvar. Tente com menos fotos.')}}
+(async()=>{await loadData();admin()})();
+</script></body></html>

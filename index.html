@@ -145,7 +145,7 @@ function setBrand(b) {
 function catView(u) {
   const brands = ['Todos', ...new Set(CAT.map(m => m.brand))];
   document.querySelector('#app').innerHTML = head(u ? `<span class="mut">Olá, ${esc(u.nome)}</span><button class="btn g s" onclick="S.view='my';cli()">Meus pedidos</button><button class="btn g s" onclick="logout()">Sair</button>` : '') + `<section class="hero"><div class="wrap"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:26px;grid-column:1/-1">
-  <div style="flex:1 1 320px;min-width:0"><h1>Qual iPhone precisa de reparo?</h1><p>Escolha o modelo, marque os serviços e veja o valor na hora.</p>
+  <div style="flex:1 1 320px;min-width:0"><h1>Qual Celular precisa de reparo?</h1><p>Escolha o modelo, marque os serviços e veja o valor na hora.</p>
   <div class="search">${SEARCH}<input id="q" type="search" aria-label="Buscar modelo" placeholder="Buscar modelo, por exemplo iPhone 13" value="${esc(S.q)}" oninput="S.q=this.value;S.page=0;renderList()"></div>
   ${brands.length > 2 ? `<div class="chips">${brands.map(b => `<button class="chip ${b === S.brand ? 'on' : ''}" data-b="${esc(b)}" onclick="setBrand(this.dataset.b)">${esc(b)}</button>`).join('')}</div>` : ''}</div>
   <div style="flex:0 1 400px;min-width:0">${carHTML()}</div></div></div></section>

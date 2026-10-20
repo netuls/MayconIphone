@@ -2,13 +2,17 @@
   "id": "./admin.html",
   "name": "Maycon iPhone - Painel",
   "short_name": "Painel",
+  "description": "Painel de orçamentos Maycon iPhone",
+  "lang": "pt-BR",
   "start_url": "./admin.html",
   "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0b1a33",
   "theme_color": "#0b1a33",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

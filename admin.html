@@ -137,5 +137,6 @@ function shrink(f){return new Promise((ok,no)=>{const r=new FileReader();r.onloa
 async function carAdd(fs){for(const f of [...fs].slice(0,6-SL.length)){try{SL.push({img:await shrink(f),txt:''})}catch(_){toast('Não consegui abrir uma das fotos')}}carTab()}
 async function carSave(){if(JSON.stringify(SL).length>950000)return toast('As fotos ficaram pesadas demais. Remova uma e salve de novo.');
  try{await store.set('slides',SL);toast('Carrossel salvo! Já aparece no site.')}catch(_){toast('Não deu para salvar. Tente com menos fotos.')}}
-(async()=>{await loadData();admin()})();
+(async()=>{await loadData();admin()})(); 
+ <script src="pix-seguro.js"></script>
 </script></body></html>

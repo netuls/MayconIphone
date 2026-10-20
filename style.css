@@ -271,4 +271,10 @@ select option{background:var(--bg2)}
   .loc .map-frame,.loc .map-frame iframe{min-height:260px}
 } 
 .grow b,.grow small{display:block}
-.grow small{color:var(--mut);font-size:13px;margin-top:2px}
+.grow small{color:var(--mut);font-size:13px;margin-top:2px} 
+/* Sem fundo branco no celular (overscroll, abertura e barras) */
+:root{color-scheme:dark}
+html{background:#05081a;min-height:100%}
+body{background-color:#05081a;
+  padding-top:env(safe-area-inset-top);
+  padding-bottom:env(safe-area-inset-bottom)}

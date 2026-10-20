@@ -35,9 +35,18 @@ const store={
 let CAT=[],CFG=DCFG,SL=[];
 async function loadData(){try{CAT=await store.get('catalog',null);if(!CAT){CAT=seed();if(!FB)await store.set('catalog',CAT)}CFG={...DCFG,...await store.get('config',{})};CFG.pix={...DCFG.pix,...CFG.pix};SL=await store.get('slides',[])||[]}catch(e){CAT=CAT||seed()}}
 function toast(t){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.append(e);setTimeout(()=>e.remove(),2600)}
-let deferred;addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;const b=$('#inst');if(b)b.hidden=false});
-async function install(){if(deferred){deferred.prompt();deferred=null}else alert('No iPhone: toque em Compartilhar e depois em Adicionar à Tela de Início.')}
-const head=(extra='')=>`<header class="top"><div class="wrap"><img src="logo.png" alt="${esc(CFG.shop)}"><div class="acts">${extra}<button id="inst" class="btn g s" onclick="install()" ${deferred?'':'hidden'}>Instalar app</button></div></div></header>`;
+let deferred;
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const isStandalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const instVisible=()=>!isStandalone()&&(!!deferred||isIOS);
+document.head.insertAdjacentHTML('beforeend','<style>[hidden]{display:none!important}</style>');
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e;const b=$('#inst');if(b)b.hidden=isStandalone()});
+addEventListener('appinstalled',()=>{deferred=null;const b=$('#inst');if(b)b.hidden=true});
+async function install(){
+ if(deferred){deferred.prompt();try{await deferred.userChoice}catch(_){}deferred=null;const b=$('#inst');if(b)b.hidden=true;return}
+ if(isIOS)alert('Para instalar no iPhone:\n\n1. Abra este site no Safari\n2. Toque em Compartilhar (quadrado com seta)\n3. Toque em "Adicionar à Tela de Início"');
+ else alert('Para instalar no Android:\n\n1. Abra este site no Chrome\n2. Toque no menu ⋮ (canto superior direito)\n3. Toque em "Instalar app" ou "Adicionar à tela inicial"')}
+const head=(extra='')=>`<header class="top"><div class="wrap"><img src="logo.png" alt="${esc(CFG.shop)}"><div class="acts">${extra}<button id="inst" class="btn g s" onclick="install()" ${instVisible()?'':'hidden'}>Instalar app</button></div></div></header>`;
 /* Pix (BR Code) */
 function crc(s){let c=0xFFFF;for(let i=0;i<s.length;i++){c^=s.charCodeAt(i)<<8;for(let j=0;j<8;j++)c=c&0x8000?((c<<1)^0x1021)&0xFFFF:(c<<1)&0xFFFF}return c.toString(16).toUpperCase().padStart(4,'0')}
 function pixCode(p,amt){const a=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\x20-\x7E]/g,'').toUpperCase();

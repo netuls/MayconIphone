@@ -3,9 +3,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b1a33">
 <meta name="robots" content="noindex,nofollow">
-<title>Painel admin | Maycon iPhone</title> 
- <link rel="icon" type="image/png" href="icon-192.png">
+<title>Painel admin | Maycon iPhone</title>
+<link rel="manifest" href="manifest-admin.json">
+<link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Painel">
 <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head><body>
@@ -16,6 +20,10 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="core.js"></script>
+<script>
+if('serviceWorker' in navigator&&(location.protocol==='http:'||location.protocol==='https:'))
+  navigator.serviceWorker.register('./sw.js').catch(e=>console.error('SW:',e));
+</script>
 <style>.pill.wait{white-space:nowrap;flex-shrink:0;font-size:12px;background:#fff4d6;color:#8a5a00;border-color:#f0c36b}</style>
 <script>if(typeof ST!=="undefined"&&!ST.aguardando_pagamento)ST.aguardando_pagamento={n:"Aguardando pagamento"};</script>
 <script>

@@ -14,3 +14,7 @@ const FIREBASE_CONFIG = {
 // E-mail do usuário admin criado no Firebase (Authentication > Users).
 // O painel pede só a senha; este e-mail é usado por trás.
 const ADMIN_EMAIL = "mayconelano15@gmail.com";
+
+// Endereço da função no Netlify que confere o código da troca de chave Pix.
+// Troque pelo endereço real do projeto, sem barra no final.
+const PIX_API = "https://spectacular-biscochitos-b02fb9.netlify.app";

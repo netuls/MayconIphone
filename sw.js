@@ -1,4 +1,4 @@
-const C = 'mi-v2';
+const C = 'mi-v3';
 const F = [
   './',
   './index.html',
@@ -10,6 +10,9 @@ const F = [
   './logo.png',
   './icon-192.png',
   './icon-512.png',
+  './icon-maskable-512.png',
+  './apple-touch-icon.png',
+  './favicon.ico',
   './manifest.json',
   './manifest-admin.json'
 ];

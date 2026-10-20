@@ -17,4 +17,4 @@ const ADMIN_EMAIL = "mayconelano15@gmail.com";
 
 // Endereço da função no Netlify que confere o código da troca de chave Pix.
 // Troque pelo endereço real do projeto, sem barra no final.
-const PIX_API = "https://spectacular-biscochitos-b02fb9.netlify.app";
+const PIX_API = "https://dulcet-fairy-7f3428.netlify.app";
